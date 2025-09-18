@@ -2,6 +2,21 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.myapp">
 
+    <!-- Permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- Queries element for package visibility -->
+    <queries>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.microsoft.teams" />
+        <package android:name="com.android.vending" />
+        <package android:name="com.xiaomi.mipicks" />
+        <package android:name="com.sec.android.app.samsungapps" />
+        <package android:name="com.amazon.venezia" />
+        <package android:name="com.huawei.appmarket" />
+    </queries>
 
     <application
         android:allowBackup="true"
@@ -9,13 +24,14 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
 
-        <!-- Main launcher activity (exported required for Android 12+) -->
+        <!-- Main launcher activity -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
 
@@ -26,10 +42,30 @@
             android:exported="true">
             <meta-data
                 android:name="android.app.device_admin"
-                android:resource="@xml/device_admin_receiver" />
+                android:resource="@xml/device_admin_receiver"/>
             <intent-filter>
-                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
-                <action android:name="android.app.action.PROFILE_PROVISIONING_COMPLETE" />
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED"/>
+                <action android:name="android.app.action.PROFILE_PROVISIONING_COMPLETE"/>
+                <action android:name="android.app.action.DEVICE_ADMIN_DISABLE_REQUESTED"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- Notification Listener Service -->
+        <service
+            android:name=".MyNotificationListenerService"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Package Installer Broadcast Receiver -->
+        <receiver
+            android:name=".PackageInstallerReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.content.pm.action.SESSION_COMMITTED" />
             </intent-filter>
         </receiver>
 
