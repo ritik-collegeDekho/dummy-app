@@ -9,7 +9,6 @@ import android.os.Bundle;
 import android.os.UserManager;
 import android.util.Log;
 import android.widget.Toast;
-import android.os.UserManager;
 import java.util.Arrays;
 import java.util.List;
 
@@ -22,8 +21,7 @@ public class SimplifiedDevicePolicyHelper {
 
     // List of approved apps with APK URLs
     private static final String[][] APPROVED_APPS = {
-            {"com.whatsapp", "WhatsApp Messenger", "https://43cf9e92e311.ngrok-free.app/whatsapp.apk"},
-            {"com.microsoft.teams", "Microsoft Teams", "https://your-server.com/apks/com.microsoft.teams.apk"}
+            {"com.whatsapp", "WhatsApp Messenger", "https://scontent.whatsapp.net/v/t61.25591-34/10000000_2188509828330405_9057121685562573600_n.apk/WhatsApp.apk?ccb=1-7&_nc_sid=c49adc&_nc_ohc=V-lN3qq6y7cQ7kNvwHC6CKw&_nc_oc=Adls1BIoprP-uOOY8fKJuxmoHoR3VVf8lfYrcwIOUDLBz0Ub_60JtW-Qjt8Rk6lwDRI&_nc_zt=3&_nc_ht=scontent.whatsapp.net&_nc_gid=taol0XnjaN12qzG7oT6u-w&oh=01_Q5Aa2gEpCMOLKiy21NLxI_Q2_d0U3I9YZyl1rIbfa7VEzbP_zg&oe=68F36090"},
     };
 
     // App stores to hide

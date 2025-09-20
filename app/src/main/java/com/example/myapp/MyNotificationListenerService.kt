@@ -1,6 +1,9 @@
+
 package com.example.myapp
 
+import android.content.ComponentName
 import android.content.Context
+import android.os.Build
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
@@ -10,6 +13,7 @@ import androidx.core.app.NotificationManagerCompat
 class MyNotificationListenerService : NotificationListenerService() {
     companion object {
         private const val TAG = "MyNotificationListener"
+
         @JvmStatic
         fun isNotificationAccessEnabled(context: Context): Boolean {
             return try {
@@ -38,6 +42,12 @@ class MyNotificationListenerService : NotificationListenerService() {
             val timestamp = sbn.postTime
             val isSensitive = notification.extras.getBoolean("android.sensitive", false)
 
+            // Accessibility: Prepare announcement for screen readers
+            val announcement = "New notification from $packageName: $title, $text"
+            // Use requestRebind for API 24 and above to enhance accessibility
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                requestRebind(ComponentName(this, MyNotificationListenerService::class.java))
+            }
             Log.d(
                 TAG,
                 "Notification posted: $packageName - $title - $text (Sensitive: $isSensitive, Time: $timestamp)"

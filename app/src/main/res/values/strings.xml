@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">myapp</string>
+
+    <!-- Add this to fix the error -->
+    <string name="accessibility_service_description">
+        Accessibility service for monitoring WhatsApp activity
+    </string>
 </resources>

@@ -8,7 +8,7 @@ import android.util.Log;
 import android.widget.Toast;
 
 public class PackageInstallerReceiver extends BroadcastReceiver {
-    private static final String TAG = "PkgInstallerReceiver"; // <= 23 chars
+    private static final String TAG = "PkgInstallerReceiver";
 
     @Override
     public void onReceive(Context context, Intent intent) {
