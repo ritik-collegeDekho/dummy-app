@@ -7,16 +7,24 @@ import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityManager;
-import java.util.List;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 public class WhatsAppAccessibilityService extends AccessibilityService {
-    private static final String TAG = "WhatsAppRawLog";
+    private static final String TAG = "WhatsAppStructuredLog";
     private static final String WHATSAPP_PACKAGE = "com.whatsapp";
-    private SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault());
+    private static final Pattern TIME_PATTERN = Pattern.compile("\\d{1,2}:\\d{2}\\s*[ap]m");
+    private static final Pattern PHONE_PATTERN = Pattern.compile("\\+\\d{1,3} \\d+");
+    private SimpleDateFormat timeFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
     private int eventCounter = 0;
+    private String currentChatId = null;
+    private boolean isGroupChat = false;
 
     @Override
     protected void onServiceConnected() {
@@ -32,154 +40,277 @@ public class WhatsAppAccessibilityService extends AccessibilityService {
             Log.i(TAG, "  Event Types Mask: " + info.eventTypes);
             Log.i(TAG, "  Feedback Type: " + info.feedbackType);
             Log.i(TAG, "  Can Retrieve Content: " + ((info.flags & AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS) != 0));
+            Log.i(TAG, "  Service ID: " + info.getId());
         }
         Log.i(TAG, "🎯 Ready to capture WhatsApp events...");
+        Log.d(TAG, "Checking service status on start: " + isAccessibilityServiceEnabled(this));
     }
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
-        // Only process WhatsApp events
         if (!WHATSAPP_PACKAGE.equals(event.getPackageName())) {
             return;
         }
 
         eventCounter++;
         String timestamp = timeFormat.format(new Date(event.getEventTime()));
+        Log.v(TAG, "Event #" + eventCounter + " [" + timestamp + "] Type: " + getEventTypeName(event.getEventType()));
 
-        Log.i(TAG, "");
-        Log.i(TAG, "🔴 EVENT #" + eventCounter + " [" + timestamp + "]");
-        Log.i(TAG, "┌─ TYPE: " + getEventTypeName(event.getEventType()) + " (" + event.getEventType() + ")");
-        Log.i(TAG, "├─ PACKAGE: " + event.getPackageName());
-        Log.i(TAG, "├─ CLASS: " + event.getClassName());
-
-        // Log content description if present
-        if (event.getContentDescription() != null) {
-            Log.i(TAG, "├─ CONTENT_DESC: '" + event.getContentDescription() + "'");
+        // Handle chat open
+        if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+                event.getClassName().equals("com.whatsapp.Conversation")) {
+            AccessibilityNodeInfo source = event.getSource();
+            if (source == null) {
+                Log.w(TAG, "Source node is null for WINDOW_STATE_CHANGED");
+                return;
+            }
+            currentChatId = findChatId(source);
+            isGroupChat = detectGroupChat(source);
+            Log.i(TAG, "Chat opened: " + (isGroupChat ? "Group" : "Private") + " - " + (currentChatId != null ? currentChatId : "Unknown"));
+            source.recycle();
         }
 
-        // Log all text content from event
-        List<CharSequence> texts = event.getText();
-        if (texts != null && !texts.isEmpty()) {
-            Log.i(TAG, "├─ EVENT_TEXTS (" + texts.size() + "):");
-            for (int i = 0; i < texts.size(); i++) {
-                if (texts.get(i) != null && texts.get(i).length() > 0) {
-                    Log.i(TAG, "│  └─ [" + i + "]: '" + texts.get(i) + "'");
+        // Process content changes
+        if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
+                event.getEventType() == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+            AccessibilityNodeInfo source = event.getSource();
+            if (source == null) {
+                Log.w(TAG, "Source node is null for event type: " + getEventTypeName(event.getEventType()));
+                return;
+            }
+            processChatContent(source);
+            source.recycle();
+        }
+    }
+
+    private String findChatId(AccessibilityNodeInfo root) {
+        List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversation_contact_name");
+        if (!nodes.isEmpty()) {
+            CharSequence name = nodes.get(0).getText();
+            nodes.get(0).recycle();
+            return name != null ? name.toString() : null;
+        }
+
+        nodes = findNodesByClassName(root, "android.widget.TextView");
+        for (AccessibilityNodeInfo node : nodes) {
+            CharSequence text = node.getText();
+            if (text != null) {
+                String textStr = text.toString();
+                if (textStr.contains(",") && PHONE_PATTERN.matcher(textStr).find()) {
+                    node.recycle();
+                    return textStr;
+                } else if (textStr.startsWith("+") || textStr.matches(".*admissions.*")) {
+                    String result = textStr;
+                    node.recycle();
+                    return result;
                 }
             }
+            node.recycle();
         }
+        return null;
+    }
 
-        // Log before/after text for text change events
-        if (event.getEventType() == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
-            if (event.getBeforeText() != null) {
-                Log.i(TAG, "├─ BEFORE_TEXT: '" + event.getBeforeText() + "'");
+    private boolean detectGroupChat(AccessibilityNodeInfo root) {
+        List<AccessibilityNodeInfo> buttons = root.findAccessibilityNodeInfosByText("GROUP INFO");
+        if (!buttons.isEmpty()) {
+            buttons.get(0).recycle();
+            return true;
+        }
+        List<AccessibilityNodeInfo> nodes = findNodesByClassName(root, "android.widget.TextView");
+        for (AccessibilityNodeInfo node : nodes) {
+            CharSequence text = node.getText();
+            if (text != null && text.toString().contains(",") && PHONE_PATTERN.matcher(text.toString()).find()) {
+                node.recycle();
+                return true;
             }
-            Log.i(TAG, "├─ TEXT_CHANGE: From[" + event.getFromIndex() + "] To[" + event.getToIndex() + "] Added[" + event.getAddedCount() + "] Removed[" + event.getRemovedCount() + "]");
+            node.recycle();
         }
-
-        // Log additional event properties for relevant events
-        if (event.getItemCount() > 0) {
-            Log.i(TAG, "├─ ITEMS: Count=" + event.getItemCount() + " CurrentIndex=" + event.getCurrentItemIndex());
-        }
-
-        // Process source node
-        AccessibilityNodeInfo source = event.getSource();
-        if (source != null) {
-            logSourceNode(source);
-            logImportantNodes(source);
-            source.recycle();
-        } else {
-            Log.i(TAG, "├─ SOURCE: NULL");
-        }
-
-        Log.i(TAG, "└─ END EVENT #" + eventCounter);
+        return false;
     }
 
-    private void logSourceNode(AccessibilityNodeInfo node) {
-        Log.i(TAG, "├─ SOURCE_NODE:");
-        Log.i(TAG, "│  ├─ Text: '" + node.getText() + "'");
-        Log.i(TAG, "│  ├─ ContentDesc: '" + node.getContentDescription() + "'");
-        Log.i(TAG, "│  ├─ Class: " + node.getClassName());
-        Log.i(TAG, "│  ├─ ViewID: " + node.getViewIdResourceName());
-        Log.i(TAG, "│  ├─ Children: " + node.getChildCount());
-        Log.i(TAG, "│  ├─ Clickable: " + node.isClickable());
-        Log.i(TAG, "│  ├─ Enabled: " + node.isEnabled());
-        Log.i(TAG, "│  └─ Bounds: " + getBounds(node));
-    }
+    private List<AccessibilityNodeInfo> findNodesByClassName(AccessibilityNodeInfo root, String className) {
+        List<AccessibilityNodeInfo> result = new ArrayList<>();
+        if (root == null) return result;
 
-    private void logImportantNodes(AccessibilityNodeInfo root) {
-        Log.i(TAG, "├─ NODE_TREE:");
-        traverseAndLogImportantNodes(root, "│  ", 0);
-    }
-
-    private void traverseAndLogImportantNodes(AccessibilityNodeInfo node, String prefix, int depth) {
-        if (node == null || depth > 4) return; // Limit depth to avoid overwhelming logs
-
-        // Only log nodes with interesting content
-        boolean hasText = node.getText() != null && node.getText().length() > 0;
-        boolean hasContentDesc = node.getContentDescription() != null && node.getContentDescription().length() > 0;
-        boolean hasViewId = node.getViewIdResourceName() != null;
-        boolean isInteractive = node.isClickable() || node.isFocusable() || node.isCheckable();
-
-        if (hasText || hasContentDesc || hasViewId || isInteractive) {
-            String nodeInfo = String.format("%s├─ [%d] %s",
-                    prefix, depth, node.getClassName());
-
-            if (hasText) nodeInfo += " Text:'" + node.getText() + "'";
-            if (hasContentDesc) nodeInfo += " Desc:'" + node.getContentDescription() + "'";
-            if (hasViewId) nodeInfo += " ID:" + getShortViewId(node.getViewIdResourceName());
-            if (isInteractive) nodeInfo += " [INTERACTIVE]";
-
-            Log.i(TAG, nodeInfo);
+        if (className.equals(root.getClassName())) {
+            result.add(root);
         }
 
-        // Traverse children
-        int childCount = node.getChildCount();
-        for (int i = 0; i < Math.min(childCount, 8); i++) { // Limit children to avoid spam
-            AccessibilityNodeInfo child = node.getChild(i);
+        for (int i = 0; i < root.getChildCount(); i++) {
+            AccessibilityNodeInfo child = root.getChild(i);
             if (child != null) {
-                traverseAndLogImportantNodes(child, prefix + "│  ", depth + 1);
+                result.addAll(findNodesByClassName(child, className));
+            }
+        }
+        return result;
+    }
+
+    private void processChatContent(AccessibilityNodeInfo root) {
+        List<AccessibilityNodeInfo> listViews = findNodesByClassName(root, "android.widget.ListView");
+        if (listViews.isEmpty()) {
+            Log.w(TAG, "No ListView found in node tree");
+            return;
+        }
+
+        AccessibilityNodeInfo listView = listViews.get(0);
+        JSONArray messages = new JSONArray();
+
+        int childCount = listView.getChildCount();
+        Log.v(TAG, "Processing ListView with " + childCount + " children");
+        for (int i = 0; i < childCount; i++) {
+            AccessibilityNodeInfo child = listView.getChild(i);
+            if (child == null) continue;
+
+            JSONObject item = parseNode(child);
+            if (item != null) {
+                messages.put(item);
+            }
+            child.recycle();
+        }
+
+        listView.recycle();
+        for (AccessibilityNodeInfo node : listViews) {
+            node.recycle();
+        }
+
+        if (messages.length() > 0) {
+            logStructuredData(messages);
+        } else {
+            Log.w(TAG, "No messages parsed from ListView");
+        }
+    }
+
+    private JSONObject parseNode(AccessibilityNodeInfo node) {
+        String className = node.getClassName().toString();
+        JSONObject result = new JSONObject();
+
+        try {
+            result.put("chat_id", currentChatId != null ? currentChatId : "Unknown");
+            result.put("is_group", isGroupChat);
+            result.put("timestamp", timeFormat.format(new Date()));
+
+            if (className.equals("android.widget.TextView")) {
+                CharSequence text = node.getText();
+                if (text == null) return null;
+                String textStr = text.toString();
+
+                if (textStr.equals("Today") || textStr.equals("Yesterday") || textStr.contains("end-to-end encrypted")) {
+                    return null;
+                }
+                if (textStr.contains("unread messages")) {
+                    result.put("unread_count", textStr.replaceAll("\\D+", ""));
+                    return result;
+                }
+                if (TIME_PATTERN.matcher(textStr).matches()) {
+                    return null;
+                }
+
+                result.put("message", textStr);
+                result.put("is_sent", false);
+                return result;
+
+            } else if (className.equals("android.widget.Button") || className.equals("android.view.ViewGroup")) {
+                CharSequence text = node.getText();
+                if (text != null) {
+                    String textStr = text.toString();
+                    if (textStr.contains("added you") || textStr.contains("changed the group name") || textStr.contains("call")) {
+                        result.put(isGroupChat ? "system_message" : "call_info", textStr);
+                        return result;
+                    }
+                }
+
+            } else if (className.equals("android.widget.ImageView") && node.getContentDescription() != null) {
+                String desc = node.getContentDescription().toString();
+                if (desc.equals("Delivered") || desc.equals("Read") || desc.equals("Sent")) {
+                    return null;
+                }
+            }
+
+            int childCount = node.getChildCount();
+            StringBuilder messageText = new StringBuilder();
+            String timestamp = null;
+            String status = null;
+            boolean isSent = false;
+            String sender = null;
+
+            for (int i = 0; i < childCount; i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child == null) continue;
+
+                String childClass = child.getClassName().toString();
+                CharSequence childText = child.getText();
+                CharSequence childDesc = child.getContentDescription();
+
+                if (childClass.equals("android.widget.TextView") && childText != null) {
+                    String textStr = childText.toString();
+                    if (TIME_PATTERN.matcher(textStr).matches()) {
+                        timestamp = textStr;
+                    } else if (textStr.startsWith("~ ") || textStr.startsWith("+") || childDesc != null && childDesc.toString().contains("Maybe")) {
+                        sender = textStr;
+                    } else if (!textStr.contains("end-to-end encrypted") && !textStr.contains("members") && !textStr.contains("added you") && !textStr.contains("changed the group")) {
+                        messageText.append(textStr).append(" ");
+                    } else if (textStr.contains("members") || textStr.contains("Group created")) {
+                        result.put("group_info", textStr);
+                    }
+                } else if (childClass.equals("android.widget.ImageView") && childDesc != null) {
+                    String desc = childDesc.toString();
+                    if (desc.equals("Delivered") || desc.equals("Read") || desc.equals("Sent")) {
+                        isSent = true;
+                        status = desc;
+                    }
+                } else if (childClass.equals("android.widget.Button") && childText != null) {
+                    String btnText = childText.toString();
+                    if (btnText.equals("GROUP INFO") || btnText.equals("ADD MEMBERS")) {
+                        isGroupChat = true;
+                    }
+                }
+
                 child.recycle();
             }
+
+            if (messageText.length() > 0 || result.has("group_info")) {
+                if (messageText.length() > 0) {
+                    result.put("message", messageText.toString().trim());
+                    result.put("is_sent", isSent);
+                    if (timestamp != null) result.put("message_timestamp", timestamp);
+                    if (status != null) result.put("status", status);
+                    if (sender != null) result.put("sender", sender);
+                }
+                return result;
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "JSON error: " + e.getMessage());
         }
+        return null;
     }
 
-    private String getBounds(AccessibilityNodeInfo node) {
-        android.graphics.Rect bounds = new android.graphics.Rect();
-        node.getBoundsInScreen(bounds);
-        return String.format("[%d,%d-%d,%d]", bounds.left, bounds.top, bounds.right, bounds.bottom);
-    }
-
-    private String getShortViewId(String fullViewId) {
-        if (fullViewId == null) return "null";
-        int lastSlash = fullViewId.lastIndexOf('/');
-        return lastSlash >= 0 ? fullViewId.substring(lastSlash + 1) : fullViewId;
+    private void logStructuredData(JSONArray messages) {
+        try {
+            JSONObject logEntry = new JSONObject();
+            logEntry.put("event_id", eventCounter);
+            logEntry.put("timestamp", timeFormat.format(new Date()));
+            logEntry.put("chat_id", currentChatId != null ? currentChatId : "Unknown");
+            logEntry.put("is_group", isGroupChat);
+            logEntry.put("items", messages);
+            Log.i(TAG, "Structured Log: " + logEntry.toString(2));
+        } catch (Exception e) {
+            Log.e(TAG, "JSON formatting error: " + e.getMessage());
+        }
     }
 
     private String getEventTypeName(int eventType) {
         switch (eventType) {
             case AccessibilityEvent.TYPE_VIEW_CLICKED: return "VIEW_CLICKED";
-            case AccessibilityEvent.TYPE_VIEW_LONG_CLICKED: return "VIEW_LONG_CLICKED";
-            case AccessibilityEvent.TYPE_VIEW_SELECTED: return "VIEW_SELECTED";
-            case AccessibilityEvent.TYPE_VIEW_FOCUSED: return "VIEW_FOCUSED";
-            case AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED: return "VIEW_TEXT_CHANGED";
             case AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED: return "WINDOW_STATE_CHANGED";
-            case AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED: return "NOTIFICATION_STATE_CHANGED";
             case AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED: return "WINDOW_CONTENT_CHANGED";
             case AccessibilityEvent.TYPE_VIEW_SCROLLED: return "VIEW_SCROLLED";
-            case AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED: return "VIEW_TEXT_SELECTION_CHANGED";
-            case AccessibilityEvent.TYPE_ANNOUNCEMENT: return "ANNOUNCEMENT";
-            case AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED: return "VIEW_ACCESSIBILITY_FOCUSED";
-            case AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED: return "VIEW_ACCESSIBILITY_FOCUS_CLEARED";
-            case AccessibilityEvent.TYPE_WINDOWS_CHANGED: return "WINDOWS_CHANGED";
-            case AccessibilityEvent.TYPE_TOUCH_INTERACTION_START: return "TOUCH_INTERACTION_START";
-            case AccessibilityEvent.TYPE_TOUCH_INTERACTION_END: return "TOUCH_INTERACTION_END";
             default: return "UNKNOWN_" + eventType;
         }
     }
 
     @Override
     public void onInterrupt() {
-        Log.i(TAG, "");
         Log.i(TAG, "🔴 WHATSAPP ACCESSIBILITY SERVICE INTERRUPTED");
         Log.i(TAG, "Total events captured: " + eventCounter);
     }
@@ -187,25 +318,24 @@ public class WhatsAppAccessibilityService extends AccessibilityService {
     public static boolean isAccessibilityServiceEnabled(Context context) {
         AccessibilityManager am = (AccessibilityManager) context.getSystemService(Context.ACCESSIBILITY_SERVICE);
         if (am == null) {
-            Log.e("AccessibilityCheck", "AccessibilityManager is null");
+            Log.e(TAG, "AccessibilityManager is null");
             return false;
         }
 
-        String serviceId = context.getPackageName() + "/" + WhatsAppAccessibilityService.class.getName();
-        Log.d("AccessibilityCheck", "Checking for service: " + serviceId);
-
+        String serviceId = context.getPackageName() + "/" + WhatsAppAccessibilityService.class.getCanonicalName();
+        Log.v(TAG, "Checking service: " + serviceId);
         List<AccessibilityServiceInfo> enabledServices = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK);
-        Log.d("AccessibilityCheck", "Found " + enabledServices.size() + " enabled services");
+        Log.v(TAG, "Enabled services count: " + enabledServices.size());
 
         for (AccessibilityServiceInfo service : enabledServices) {
-            Log.d("AccessibilityCheck", "  Enabled: " + service.getId());
+            Log.v(TAG, "Enabled service: " + service.getId());
             if (serviceId.equals(service.getId())) {
-                Log.i("AccessibilityCheck", "✅ Service is ENABLED");
+                Log.i(TAG, "✅ Service is ENABLED");
                 return true;
             }
         }
 
-        Log.w("AccessibilityCheck", "❌ Service NOT enabled");
+        Log.w(TAG, "❌ Service NOT enabled");
         return false;
     }
 }
